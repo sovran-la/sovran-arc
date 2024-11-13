@@ -1,6 +1,6 @@
 use std::process::Command;
 use std::fs;
-use toml_edit::{Document, Item};
+use toml_edit::DocumentMut;
 
 fn get_commit_history(previous_tag: &str) -> Result<String, Box<dyn std::error::Error>> {
     let output = Command::new("git")
@@ -21,13 +21,14 @@ fn get_latest_tag() -> Result<String, Box<dyn std::error::Error>> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read current Cargo.toml
     let cargo_content = fs::read_to_string("Cargo.toml")?;
-    let mut doc = cargo_content.parse::<Document>()?;
+    let mut doc = cargo_content.parse::<DocumentMut>()?;
 
     // Get current version
     let current_version = doc["package"]["version"]
         .as_str()
         .expect("Could not find version in Cargo.toml");
 
+    // Rest of the code remains the same...
     // Ask for new version
     println!("Current version is: {}", current_version);
     println!("Enter new version:");
