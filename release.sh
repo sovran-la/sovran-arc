@@ -3,6 +3,13 @@
 # if anything fails, we don't release.
 set -euo pipefail
 
+# Check if we're on main or master branch
+CURRENT_BRANCH=$(git branch --show-current)
+if [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ]; then
+    echo "Error: Must be on 'main' or 'master' branch to release. Currently on '$CURRENT_BRANCH'"
+    exit 1
+fi
+
 # Run all tests
 echo "Running tests: '$> cargo test'"
 cargo test &> /dev/null
