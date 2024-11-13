@@ -1,6 +1,6 @@
 [package]
 name = "sovran-arc"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Dr Sneed <drsneed@sovran.la>"]
 description = "Memory management swift-isms brought to Rust"
