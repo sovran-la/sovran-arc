@@ -1,4 +1,4 @@
-# Arc Helper Types
+# SOVRAN-ARC
 
 This library provides convenient wrapper types that combine `Arc` and `Mutex` for safe shared mutable access across threads, drawing inspiration from Swift's reference counting and memory management patterns.
 
