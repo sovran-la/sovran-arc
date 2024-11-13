@@ -1,6 +1,6 @@
 [package]
 name = "sovran-arc"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Dr Sneed <drsneed@sovran.la>"]
 description = "Memory management swift-isms brought to Rust"
@@ -11,4 +11,8 @@ keywords = ["memory", "arc", "concurrency", "swift"]
 categories = ["concurrency", "memory-management"]
 
 [dependencies]
-# none
+toml_edit = "0.22"
+
+[[bin]]
+name = "release"
+path = "tools/release.rs"
