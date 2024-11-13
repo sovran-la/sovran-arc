@@ -2,6 +2,22 @@ use std::process::Command;
 use std::fs;
 use toml_edit::{Document, Item};
 
+fn get_commit_history(previous_tag: &str) -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(&["log", "--pretty=format:- %s", &format!("{}..HEAD", previous_tag)])
+        .output()?;
+
+    Ok(String::from_utf8(output.stdout)?)
+}
+
+fn get_latest_tag() -> Result<String, Box<dyn std::error::Error>> {
+    let output = Command::new("git")
+        .args(&["describe", "--tags", "--abbrev=0"])
+        .output()?;
+
+    Ok(String::from_utf8(output.stdout)?.trim().to_string())
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Read current Cargo.toml
     let cargo_content = fs::read_to_string("Cargo.toml")?;
@@ -23,6 +39,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     doc["package"]["version"] = Item::from(new_version);
     fs::write("Cargo.toml", doc.to_string())?;
 
+    // Get the latest tag for commit history
+    let previous_tag = get_latest_tag()?;
+    let commit_history = get_commit_history(&previous_tag)?;
+
     // Git commands
     let commands = [
         ("git add Cargo.toml", "Failed to stage Cargo.toml"),
@@ -42,6 +62,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if !status.success() {
             return Err(error_msg.to_string().into());
         }
+    }
+
+    // Create GitHub release
+    let create_release = Command::new("gh")
+        .args(&[
+            "release",
+            "create",
+            &format!("v{}", new_version),
+            "--title", &format!("v{}", new_version),
+            "--notes", &commit_history,
+        ])
+        .status()?;
+
+    if !create_release.success() {
+        return Err("Failed to create GitHub release".into());
     }
 
     println!("Successfully released version {}", new_version);

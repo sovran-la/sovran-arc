@@ -3,6 +3,13 @@
 # if anything fails, we don't release.
 set -euo pipefail
 
+# Check if gh is installed
+if ! command -v gh &> /dev/null; then
+    echo "Error: GitHub CLI (gh) is not installed. Please install it first:"
+    echo "  brew install gh"
+    exit 1
+fi
+
 # Check if we're on main or master branch
 CURRENT_BRANCH=$(git branch --show-current)
 if [ "$CURRENT_BRANCH" != "main" ] && [ "$CURRENT_BRANCH" != "master" ]; then
