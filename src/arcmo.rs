@@ -1,5 +1,5 @@
-use std::sync::{Arc, Mutex, Weak};
 use std::fmt::Debug;
+use std::sync::{Arc, Mutex, Weak};
 
 /// A wrapper combining Arc and Mutex for convenient shared mutable access to optional values
 /// Only works with types that implement Clone
@@ -30,7 +30,9 @@ impl<T: Clone> Arcmo<T> {
         T: Default,
         F: FnOnce(&mut T) -> R,
     {
-        let mut guard = self.inner.lock()
+        let mut guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
 
         match &mut *guard {
@@ -46,35 +48,45 @@ impl<T: Clone> Arcmo<T> {
 
     /// Sets the value to None and returns the previous value if it existed
     pub fn take(&self) -> Option<T> {
-        let mut guard = self.inner.lock()
+        let mut guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.take()
     }
 
     /// Sets the value to Some(value) and returns the previous value if it existed
     pub fn replace(&self, value: T) -> Option<T> {
-        let mut guard = self.inner.lock()
+        let mut guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.replace(value)
     }
 
     /// Returns a copy of the contained value if it exists
     pub fn value(&self) -> Option<T> {
-        let guard = self.inner.lock()
+        let guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.clone()
     }
 
     /// Returns true if the contained value is Some
     pub fn is_some(&self) -> bool {
-        let guard = self.inner.lock()
+        let guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.is_some()
     }
 
     /// Returns true if the contained value is None
     pub fn is_none(&self) -> bool {
-        let guard = self.inner.lock()
+        let guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         guard.is_none()
     }
@@ -82,7 +94,7 @@ impl<T: Clone> Arcmo<T> {
     /// Returns a weak reference to the contained value
     pub fn downgrade(&self) -> WeakArcmo<T> {
         WeakArcmo {
-            inner: Arc::downgrade(&self.inner)
+            inner: Arc::downgrade(&self.inner),
         }
     }
 }
@@ -97,9 +109,7 @@ impl<T: Clone> Clone for Arcmo<T> {
 
 impl<T: Clone + Debug> Debug for Arcmo<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Arcmo")
-            .field("inner", &self.inner)
-            .finish()
+        f.debug_struct("Arcmo").field("inner", &self.inner).finish()
     }
 }
 
@@ -111,7 +121,7 @@ impl<T: Clone + Default> Default for Arcmo<T> {
 
 /// A weak reference wrapper for Arcmo
 pub struct WeakArcmo<T: Clone> {
-    inner: Weak<Mutex<Option<T>>>
+    inner: Weak<Mutex<Option<T>>>,
 }
 
 impl<T: Clone> WeakArcmo<T> {
@@ -122,8 +132,7 @@ impl<T: Clone> WeakArcmo<T> {
         F: FnOnce(&mut T) -> R,
     {
         self.inner.upgrade().map(|arc| {
-            let mut guard = arc.lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             match &mut *guard {
                 Some(value) => f(value),
                 None => {
@@ -138,25 +147,19 @@ impl<T: Clone> WeakArcmo<T> {
 
     /// Attempts to get a copy of the value if it exists and the original Arcmo still exists
     pub fn value(&self) -> Option<T> {
-        self.inner
-            .upgrade()
-            .and_then(|arc| {
-                match arc.lock() {
-                    Ok(guard) => guard.clone(),
-                    Err(poisoned) => poisoned.into_inner().clone(),
-                }
-            })
+        self.inner.upgrade().and_then(|arc| match arc.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        })
     }
 
     /// Returns true if both the original Arcmo exists and contains Some value
     pub fn is_some(&self) -> bool {
         self.inner
             .upgrade()
-            .map(|arc| {
-                match arc.lock() {
-                    Ok(guard) => guard.is_some(),
-                    Err(poisoned) => poisoned.into_inner().is_some(),
-                }
+            .map(|arc| match arc.lock() {
+                Ok(guard) => guard.is_some(),
+                Err(poisoned) => poisoned.into_inner().is_some(),
             })
             .unwrap_or(false)
     }
@@ -168,13 +171,10 @@ impl<T: Clone> WeakArcmo<T> {
 
     /// Attempts to replace the value if the original Arcmo still exists
     pub fn replace(&self, value: T) -> Option<Option<T>> {
-        self.inner
-            .upgrade()
-            .map(|arc| {
-                let mut guard = arc.lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                std::mem::replace(&mut *guard, Some(value))
-            })
+        self.inner.upgrade().map(|arc| {
+            let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::mem::replace(&mut *guard, Some(value))
+        })
     }
 }
 
@@ -429,20 +429,20 @@ mod tests {
 
         let prev_value = weak.replace(100);
         assert_eq!(prev_value, Some(Some(42))); // Previous value was Some(42)
-        assert_eq!(strong.value(), Some(100));  // New value is 100
+        assert_eq!(strong.value(), Some(100)); // New value is 100
 
         // Test with None value
         let strong_none = Arcmo::<i32>::none();
         let weak_none = strong_none.downgrade();
 
         let prev_value = weak_none.replace(200);
-        assert_eq!(prev_value, Some(None));     // Previous value was None
+        assert_eq!(prev_value, Some(None)); // Previous value was None
         assert_eq!(strong_none.value(), Some(200)); // New value is 200
 
         // Test with dropped strong reference
         drop(strong_none);
         let result = weak_none.replace(300);
-        assert_eq!(result, None);               // Should return None when strong ref is gone
+        assert_eq!(result, None); // Should return None when strong ref is gone
     }
 
     #[test]

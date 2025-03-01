@@ -20,7 +20,9 @@ impl<T: Clone> Arcm<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let mut guard = self.inner.lock()
+        let mut guard = self
+            .inner
+            .lock()
             .unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&mut *guard)
     }
@@ -36,7 +38,7 @@ impl<T: Clone> Arcm<T> {
     /// Returns a weak reference to the contained value
     pub fn downgrade(&self) -> WeakArcm<T> {
         WeakArcm {
-            inner: Arc::downgrade(&self.inner)
+            inner: Arc::downgrade(&self.inner),
         }
     }
 
@@ -60,9 +62,7 @@ impl<T: Clone> Clone for Arcm<T> {
 
 impl<T: Clone + Debug> Debug for Arcm<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Arcm")
-            .field("inner", &self.inner)
-            .finish()
+        f.debug_struct("Arcm").field("inner", &self.inner).finish()
     }
 }
 
@@ -80,7 +80,7 @@ impl<T: Clone> From<T> for Arcm<T> {
 
 /// A weak reference wrapper for Arcm
 pub struct WeakArcm<T: Clone> {
-    inner: Weak<Mutex<T>>
+    inner: Weak<Mutex<T>>,
 }
 
 impl<T: Clone> WeakArcm<T> {
@@ -89,36 +89,26 @@ impl<T: Clone> WeakArcm<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        self.inner
-            .upgrade()
-            .map(|arc| {
-                let mut guard = arc.lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                f(&mut *guard)
-            })
+        self.inner.upgrade().map(|arc| {
+            let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            f(&mut *guard)
+        })
     }
 
     /// Attempts to get a copy of the value if the original Arcm still exists
     pub fn value(&self) -> Option<T> {
-        self.inner
-            .upgrade()
-            .map(|arc| {
-                match arc.lock() {
-                    Ok(guard) => guard.clone(),
-                    Err(poisoned) => poisoned.into_inner().clone(),
-                }
-            })
+        self.inner.upgrade().map(|arc| match arc.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        })
     }
 
     /// Attempts to replace the value if the original Arcm still exists
     pub fn replace(&self, value: T) -> Option<T> {
-        self.inner
-            .upgrade()
-            .map(|arc| {
-                let mut guard = arc.lock()
-                    .unwrap_or_else(|poisoned| poisoned.into_inner());
-                std::mem::replace(&mut *guard, value)
-            })
+        self.inner.upgrade().map(|arc| {
+            let mut guard = arc.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+            std::mem::replace(&mut *guard, value)
+        })
     }
 }
 

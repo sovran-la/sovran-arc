@@ -24,7 +24,10 @@ fn main() {
 
     // Demonstrate what happens when strong reference is dropped
     drop(v);
-    println!("After dropping strong ref, weak.value() = {:?}", weak.value());
+    println!(
+        "After dropping strong ref, weak.value() = {:?}",
+        weak.value()
+    );
 
     // Examples of From and Into
     println!("\n=== From and Into Examples ===");
