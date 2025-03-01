@@ -20,13 +20,17 @@ impl<T: Clone> Arcm<T> {
     where
         F: FnOnce(&mut T) -> R,
     {
-        let mut guard = self.inner.lock().unwrap();
+        let mut guard = self.inner.lock()
+            .unwrap_or_else(|poisoned| poisoned.into_inner());
         f(&mut *guard)
     }
 
     /// Returns a copy of the contained value
     pub fn value(&self) -> T {
-        self.inner.lock().unwrap().clone()
+        match self.inner.lock() {
+            Ok(guard) => guard.clone(),
+            Err(poisoned) => poisoned.into_inner().clone(),
+        }
     }
 
     /// Returns a weak reference to the contained value
@@ -34,6 +38,15 @@ impl<T: Clone> Arcm<T> {
         WeakArcm {
             inner: Arc::downgrade(&self.inner)
         }
+    }
+
+    /// Replace the value without cloning the old one, returns the old value.
+    pub fn replace(&self, value: T) -> T {
+        let mut guard = match self.inner.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        std::mem::replace(&mut *guard, value)
     }
 }
 
@@ -79,7 +92,8 @@ impl<T: Clone> WeakArcm<T> {
         self.inner
             .upgrade()
             .map(|arc| {
-                let mut guard = arc.lock().unwrap();
+                let mut guard = arc.lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
                 f(&mut *guard)
             })
     }
@@ -88,7 +102,23 @@ impl<T: Clone> WeakArcm<T> {
     pub fn value(&self) -> Option<T> {
         self.inner
             .upgrade()
-            .map(|arc| arc.lock().unwrap().clone())
+            .map(|arc| {
+                match arc.lock() {
+                    Ok(guard) => guard.clone(),
+                    Err(poisoned) => poisoned.into_inner().clone(),
+                }
+            })
+    }
+
+    /// Attempts to replace the value if the original Arcm still exists
+    pub fn replace(&self, value: T) -> Option<T> {
+        self.inner
+            .upgrade()
+            .map(|arc| {
+                let mut guard = arc.lock()
+                    .unwrap_or_else(|poisoned| poisoned.into_inner());
+                std::mem::replace(&mut *guard, value)
+            })
     }
 }
 
@@ -104,6 +134,8 @@ impl<T: Clone> Debug for WeakArcm<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::panic::{self, AssertUnwindSafe};
+    use std::thread;
 
     #[test]
     fn test_basic_usage() {
@@ -192,5 +224,160 @@ mod tests {
         // Using into() method - with explicit type annotation
         let arcm3: Arcm<Vec<i32>> = Vec::new().into();
         assert!(arcm3.value().is_empty());
+    }
+
+    #[test]
+    fn test_arcm_poisoned_mutex_recovery() {
+        let arcm = Arcm::new(42);
+        let arcm_clone = arcm.clone();
+
+        // Poison the mutex by causing a panic while holding the lock
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+            let handle = thread::spawn(move || {
+                // This will poison the mutex
+                arcm_clone.modify(|_| panic!("Deliberate panic to poison mutex"));
+            });
+
+            // Wait for the thread to complete (and panic)
+            let _ = handle.join();
+        }));
+
+        // Now try to use the poisoned mutex - should recover
+        let value = arcm.value();
+        assert_eq!(value, 42);
+
+        // Try to modify the poisoned mutex - should recover
+        let result = arcm.modify(|v| {
+            *v = 100;
+            *v
+        });
+        assert_eq!(result, 100);
+        assert_eq!(arcm.value(), 100);
+    }
+
+    #[test]
+    fn test_arcm_replace() {
+        let arcm = Arcm::new(42);
+
+        // Test basic replace functionality
+        let old_value = arcm.replace(100);
+        assert_eq!(old_value, 42);
+        assert_eq!(arcm.value(), 100);
+
+        // Test replace with multiple references
+        let arcm2 = arcm.clone();
+        arcm.replace(200);
+        assert_eq!(arcm2.value(), 200);
+
+        // Test replace with complex types
+        let vec_arcm = Arcm::new(vec![1, 2, 3]);
+        let old_vec = vec_arcm.replace(vec![4, 5, 6]);
+        assert_eq!(old_vec, vec![1, 2, 3]);
+        assert_eq!(vec_arcm.value(), vec![4, 5, 6]);
+    }
+
+    #[test]
+    fn test_arcm_replace_with_poisoned_mutex() {
+        let arcm = Arcm::new(42);
+        let arcm_clone = arcm.clone();
+
+        // Poison the mutex
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+            let handle = thread::spawn(move || {
+                arcm_clone.modify(|_| panic!("Deliberate panic to poison mutex"));
+            });
+            let _ = handle.join();
+        }));
+
+        // Try replace with poisoned mutex - should recover
+        let old_value = arcm.replace(100);
+        assert_eq!(old_value, 42);
+        assert_eq!(arcm.value(), 100);
+    }
+
+    #[test]
+    fn test_weak_arcm_poisoned_mutex() {
+        let strong = Arcm::new(42);
+        let weak = strong.downgrade();
+        let strong_clone = strong.clone();
+
+        // Poison the mutex
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+            let handle = thread::spawn(move || {
+                strong_clone.modify(|_| panic!("Deliberate panic to poison mutex"));
+            });
+            let _ = handle.join();
+        }));
+
+        // Try weak methods with poisoned mutex
+        let value = weak.value();
+        assert_eq!(value, Some(42));
+
+        let result = weak.modify(|v| {
+            *v = 100;
+            *v
+        });
+        assert_eq!(result, Some(100));
+        assert_eq!(strong.value(), 100);
+    }
+
+    #[test]
+    fn test_weak_arcm_replace() {
+        let strong = Arcm::new(42);
+        let weak = strong.downgrade();
+
+        // Test basic replace
+        let old_value = weak.replace(100);
+        assert_eq!(old_value, Some(42));
+        assert_eq!(strong.value(), 100);
+
+        // Test replace after dropping strong reference
+        drop(strong);
+        let result = weak.replace(200);
+        assert_eq!(result, None); // Should return None when strong ref is gone
+    }
+
+    #[test]
+    fn test_weak_arcm_poisoned_and_replace() {
+        let strong = Arcm::new(42);
+        let weak = strong.downgrade();
+        let strong_clone = strong.clone();
+
+        // Poison the mutex
+        let _ = panic::catch_unwind(AssertUnwindSafe(|| {
+            let handle = thread::spawn(move || {
+                strong_clone.modify(|_| panic!("Deliberate panic to poison mutex"));
+            });
+            let _ = handle.join();
+        }));
+
+        // Test replace with poisoned mutex
+        let old_value = weak.replace(100);
+        assert_eq!(old_value, Some(42));
+        assert_eq!(strong.value(), 100);
+    }
+
+    #[test]
+    fn test_arcm_thread_safety() {
+        let arcm = Arcm::new(0);
+        let threads = 10;
+        let increments_per_thread = 1000;
+
+        let handles: Vec<_> = (0..threads)
+            .map(|_| {
+                let arcm = arcm.clone();
+                thread::spawn(move || {
+                    for _ in 0..increments_per_thread {
+                        arcm.modify(|v| *v += 1);
+                    }
+                })
+            })
+            .collect();
+
+        for handle in handles {
+            handle.join().unwrap();
+        }
+
+        assert_eq!(arcm.value(), threads * increments_per_thread);
     }
 }
